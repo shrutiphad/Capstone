@@ -1,0 +1,17 @@
+[
+  {"message_id":"m1","property_id":"hotel_a","text":"do you have a room for tomorrow night for 2 people","intent":"booking"},
+  {"message_id":"m2","property_id":"hotel_a","text":"kya kal ka room milega 2 logo ke liye","intent":"booking"},
+  {"message_id":"m3","property_id":"hotel_a","text":"please cancel my booking for tonight","intent":"cancellation"},
+  {"message_id":"m4","property_id":"hotel_a","text":"what time is checkout?","intent":"faq"},
+  {"message_id":"m5","property_id":"hotel_a","text":"the AC in room 203 is not working at all","intent":"complaint"},
+  {"message_id":"m6","property_id":"hotel_a","text":"please give me a wake up call at 6am","intent":"wakeup"},
+  {"message_id":"m7","property_id":"hotel_b","text":"is there a single room available from 1st","intent":"booking"},
+  {"message_id":"m8","property_id":"hotel_b","text":"what is the monthly rent and deposit","intent":"faq"},
+  {"message_id":"m9","property_id":"hotel_b","text":"cancel kar do meri booking","intent":"cancellation"},
+  {"message_id":"m10","property_id":"hotel_b","text":"wifi password kya hai","intent":"faq"},
+  {"message_id":"m11","property_id":"hotel_b","text":"the food yesterday was cold and bad","intent":"complaint"},
+  {"message_id":"m12","property_id":"hotel_b","text":"wake me up at 5:30 tomorrow please","intent":"wakeup"},
+  {"message_id":"m13","property_id":"hotel_a","text":"hi","intent":"faq"},
+  {"message_id":"m14","property_id":"hotel_a","text":"umm maybe cancel or change, not sure yet","intent":"cancellation"},
+  {"message_id":"m15","property_id":"hotel_a","text":"book a deluxe room and also what's the wifi","intent":"booking"}
+]

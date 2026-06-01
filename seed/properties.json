@@ -1,0 +1,22 @@
+[
+  {
+    "property_id": "hotel_a",
+    "name": "Hotel Surya (Varanasi)",
+    "language": "hi",
+    "custom_faqs": [
+      {"q": "checkout time", "a": "11 AM"},
+      {"q": "wifi", "a": "Free WiFi, password at reception"},
+      {"q": "parking", "a": "Free on-site parking"}
+    ]
+  },
+  {
+    "property_id": "hotel_b",
+    "name": "Coastal Stay PG (Bengaluru)",
+    "language": "en",
+    "custom_faqs": [
+      {"q": "rent", "a": "₹9,500/month sharing, ₹14,000 single"},
+      {"q": "food", "a": "Veg/non-veg mess included"},
+      {"q": "deposit", "a": "Two months refundable"}
+    ]
+  }
+]
