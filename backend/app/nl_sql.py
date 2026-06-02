@@ -11,11 +11,7 @@ Security pipeline:
 3. Tenant scope enforced IN PYTHON via RLS set_config (never trust LLM)
 4. Runs in a read-only transaction
 
-NOTE: We do NOT use a subquery wrapper for tenant injection because it breaks
-aggregate queries (SELECT COUNT(*) has no property_id column in result).
-Instead we rely on RLS (set_config) as the enforcement layer — it's at the
-DB level, not app-code. The LLM prompt also asks it NOT to add a tenant filter,
-so we're not competing with a broken LLM-added filter.
+
 """
 import json
 import logging
