@@ -25,14 +25,19 @@ def event_loop():
     loop.close()
 
 
+# @pytest.fixture(scope="session")
+# async def client():
+#     async with AsyncClient(app=app, base_url=BASE_URL, timeout=30.0) as client:
+#         yield c
 @pytest.fixture(scope="session")
 async def client():
-    async with httpx.AsyncClient(base_url=BASE_URL, timeout=30) as c:
+    async with httpx.AsyncClient(base_url=BASE_URL, timeout=60) as c:
         yield c
 
-
+# @pytest.fixture(scope="session")
+# async def seeded_properties(client: httpx.AsyncClient):
 @pytest.fixture(scope="session")
-async def seeded_properties(client: httpx.AsyncClient):
+async def seeded_properties(client):
     """Ensure both seed properties exist before running tests."""
     for prop in [
         {

@@ -99,8 +99,20 @@ async def init_pool(database_url: str) -> None:
   
     
     ssl_setting = "require" if "supabase.co" in database_url else "disable"
-    _pool = await asyncpg.create_pool(database_url, min_size=2, max_size=10, ssl=ssl_setting)
+    # _pool = await asyncpg.create_pool(database_url, min_size=2, max_size=10, ssl=ssl_setting)
 
+
+    # NEW — add statement_cache_size=0 for pgbouncer compatibility
+    _pool = await asyncpg.create_pool(
+        database_url,
+        min_size=1,
+        max_size=5,
+        command_timeout=10,
+        timeout=10,
+        statement_cache_size=0,   # ← this line fixes the DuplicatePreparedStatementError
+    )
+    
+    
     from pathlib import Path
     schema_file = Path(__file__).parent.parent / "seed" / "schema.sql"
     if schema_file.exists():

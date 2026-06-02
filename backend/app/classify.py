@@ -47,16 +47,17 @@ RULES: dict[str, list[str]] = {
         "meals", "kya hai", "kya hoga", "kitna", "kab tak",
         "timings", "hours", "what is", "how much", "how do",
     ],
-    "complaint": [
-        "not working", "broken", "problem", "issue", "complaint",
-        "dirty", "noise", "noisy", "smell", "bug", "cockroach",
-        "leaking", "leak", "doesn't work", "no hot water", "no water",
-        "ac not", "heater not", "light not", "tv not", "unhappy", "terrible",
-        "worst", "unacceptable", "disgusting",
-        "food was cold", "food was bad", "cold and bad", "bad and cold",
-        "yesterday was cold", "cold food", "stale food", "bad food",
-        "khaana kharab", "khana thanda", "khaana thanda",
-    ],
+  "complaint": [
+    "not working", "broken", "problem", "issue", "complaint",
+    "dirty", "noise", "noisy", "smell", "bug", "cockroach",
+    "leaking", "leak", "doesn't work", "no hot water", "no water",
+    "ac not", "heater not", "light not", "tv not", "unhappy", "terrible",
+    "worst", "unacceptable", "disgusting",
+    "food was cold", "food was bad", "cold and bad", "bad and cold",
+    "yesterday was cold", "cold food", "stale food", "bad food",
+    "khaana kharab", "khana thanda", "khaana thanda",
+    "kaam nahi kar raha", "kaam nahi", "nahi chal raha",   
+],
     "wakeup": [
         "wake up", "wake-up", "wakeup", "wake me", "alarm", "morning call",
         "wake up call", "jagao", "jagana", "uthaana", "uthao", "utha dena",
@@ -116,12 +117,29 @@ def _rule_classify(text: str) -> tuple[Optional[str], float]:
     # Tie-breaking: if complaint and booking are tied (both have 1 hit),
     # and complaint has a specific problem keyword, complaint wins.
     # Prevents "room 203 not working" being classified as booking.
-    if (
-        best == "booking"
-        and "complaint" in scores
-        and abs(scores["booking"] - scores["complaint"]) < 0.01
-    ):
-        best = "complaint"
+    
+    
+    # NEW — complaint wins if it has ANY specific problem keyword,
+# even if booking scored higher due to list-length artifact
+    COMPLAINT_PRIORITY_KEYWORDS = [
+        "not working", "broken", "doesn't work", "no hot water", "no water",
+        "ac not", "heater not", "light not", "tv not", "leaking", "leak",
+        "kaam nahi kar raha", "kaam nahi", "nahi chal raha",
+        "dirty", "noise", "noisy", "smell", "bug", "cockroach",
+        "food was cold", "food was bad", "cold food", "stale food", "bad food",
+        "khaana kharab", "khana thanda", "khaana thanda",
+    ]
+
+    if best == "booking" and "complaint" in scores:
+        if any(kw in text_lower for kw in COMPLAINT_PRIORITY_KEYWORDS):
+            best = "complaint"
+            
+    # if (
+    #     best == "booking"
+    #     and "complaint" in scores
+    #     and abs(scores["booking"] - scores["complaint"]) < 0.01
+    # ):
+    #     best = "complaint"
 
     raw = scores[best]
 
