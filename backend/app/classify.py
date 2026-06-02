@@ -14,8 +14,9 @@ import logging
 import re
 import statistics
 from typing import Optional
+from groq import Groq  
 
-import anthropic
+import asyncio
 
 from .config import get_settings
 
@@ -155,9 +156,8 @@ def _rule_classify(text: str) -> tuple[Optional[str], float]:
 
 
 async def _llm_classify(text: str, property_config: dict) -> tuple[str, float]:
-    """Stage 2: LLM classification using Claude."""
+    """Stage 2: LLM classification using Groq."""
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     property_context = ""
     if property_config.get("custom_faqs"):
@@ -175,13 +175,16 @@ If ambiguous, pick the most likely intent but lower the confidence below 0.6.
 """
 
     try:
-        response = await client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=80,
-            messages=[{"role": "user", "content": prompt}],
+        client = Groq(api_key=settings.GROQ_API_KEY)
+        response = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                max_tokens=80,
+                messages=[{"role": "user", "content": prompt}],
+            )
         )
-        raw = response.content[0].text.strip()
-        # Strip any markdown
+        raw = response.choices[0].message.content.strip()
         raw = re.sub(r"```json|```", "", raw).strip()
         data = json.loads(raw)
         intent = data.get("intent", "faq")

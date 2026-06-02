@@ -3,15 +3,12 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    # Database
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/hotel_db"
 
-    # Anthropic
-    ANTHROPIC_API_KEY: str = ""
+    GROQ_API_KEY: str = ""  # ← changed
 
-    # App
     CONFIDENCE_THRESHOLD: float = 0.6
-    CANCEL_CONFIDENCE_THRESHOLD: float = 0.75  # Higher bar for auto-cancel
+    CANCEL_CONFIDENCE_THRESHOLD: float = 0.75
     OTA_URL: str = "http://localhost:9000"
     OTA_MAX_RETRIES: int = 5
 

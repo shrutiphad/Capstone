@@ -20,7 +20,9 @@ so we're not competing with a broken LLM-added filter.
 import json
 import logging
 import re
-import anthropic
+import os
+import asyncio
+from groq import Groq
 
 from .config import get_settings
 from .database import get_pool
@@ -96,9 +98,8 @@ def _validate_sql(sql: str) -> str:
 
 
 async def _generate_sql_llm(question: str) -> str:
-    """Ask Claude to generate a tenant-agnostic SQL query."""
+    """Ask Groq LLM to generate a tenant-agnostic SQL query."""
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     prompt = f"""You are a PostgreSQL query generator for a hotel management system.
 
@@ -111,12 +112,16 @@ Return ONLY the SQL query — no explanation, no markdown fences, no semicolons.
 If unanswerable from this schema, return exactly: UNANSWERABLE"""
 
     try:
-        response = await client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=400,
-            messages=[{"role": "user", "content": prompt}],
+        client = Groq(api_key=settings.GROQ_API_KEY)
+        response = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                max_tokens=400,
+                messages=[{"role": "user", "content": prompt}],
+            )
         )
-        result = response.content[0].text.strip()
+        result = response.choices[0].message.content.strip()
         result = re.sub(r"```sql|```", "", result).strip()
         return result
     except Exception as exc:
@@ -192,15 +197,14 @@ def _serialize_rows(rows: list[dict]) -> list[dict]:
     return result
 
 
+
 async def _summarize_results(question: str, rows: list[dict], sql: str) -> str:
     """Convert rows to a natural language answer in the question's language."""
     settings = get_settings()
     if not rows:
         return "Koi data nahi mila is sawal ke liye."
 
-    client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
     rows_preview = json.dumps(rows[:20], default=str)
-
     prompt = f"""Question (English/Hindi/Hinglish): "{question}"
 Data rows returned: {rows_preview}
 Total rows: {len(rows)}
@@ -209,11 +213,15 @@ Answer in the SAME language as the question (1-3 sentences, be specific with num
 If Hindi/Hinglish question, answer in Hinglish."""
 
     try:
-        resp = await client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
+        client = Groq(api_key=settings.GROQ_API_KEY)
+        response = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                max_tokens=200,
+                messages=[{"role": "user", "content": prompt}],
+            )
         )
-        return resp.content[0].text.strip()
+        return response.choices[0].message.content.strip()
     except Exception:
         return f"{len(rows)} record(s) found."

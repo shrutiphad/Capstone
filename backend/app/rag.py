@@ -7,8 +7,9 @@ import logging
 import os
 import re
 from pathlib import Path
-
-import anthropic
+# Remove: import anthropic
+import asyncio
+from groq import Groq
 
 from .config import get_settings
 
@@ -101,8 +102,11 @@ async def rag_answer(question: str) -> dict:
 
     context = "\n\n".join(f"[{fname}]\n{content}" for fname, content in context_parts)
 
+    # settings = get_settings()
+    # client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    
     settings = get_settings()
-    client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+    client = Groq(api_key=settings.GROQ_API_KEY)
 
     prompt = f"""You are a helpful hotel operations assistant. Answer the question using ONLY the provided knowledge base content.
 If the answer is not in the knowledge base, say so clearly — do NOT fabricate.
@@ -119,33 +123,54 @@ Instructions:
 - If the KB does not contain the answer, reply: "Yeh information mere knowledge base mein nahi hai."
 """
 
+    # try:
+    #     response = await client.messages.create(
+    #         model="claude-haiku-4-5",
+    #         max_tokens=300,
+    #         messages=[{"role": "user", "content": prompt}],
+    #     )
+    #     answer_text = response.content[0].text.strip()
+
+    #     # Extract cited source from answer or use best match
+    #     cited = best_file
+    #     cite_match = re.search(r"\[Source:\s*([\w.]+)\]", answer_text)
+    #     if cite_match:
+    #         cited = cite_match.group(1)
+
+    #     return {
+    #         "answer": answer_text,
+    #         "source": cited,
+    #         "type": "rag",
+    #     }
+    # except Exception as exc:
+    #     logger.error("RAG LLM failed: %s", exc)
+    #     return {
+    #         "answer": "Technical error — please try again.",
+    #         "source": None,
+    #         "type": "error",
+    #     }
+
+
     try:
-        response = await client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=300,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        answer_text = response.content[0].text.strip()
+            response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    max_tokens=300,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+            )
+            answer_text = response.choices[0].message.content.strip()
 
-        # Extract cited source from answer or use best match
-        cited = best_file
-        cite_match = re.search(r"\[Source:\s*([\w.]+)\]", answer_text)
-        if cite_match:
-            cited = cite_match.group(1)
+            cited = best_file
+            cite_match = re.search(r"\[Source:\s*([\w.]+)\]", answer_text)
+            if cite_match:
+                cited = cite_match.group(1)
 
-        return {
-            "answer": answer_text,
-            "source": cited,
-            "type": "rag",
-        }
+            return {"answer": answer_text, "source": cited, "type": "rag"}
     except Exception as exc:
-        logger.error("RAG LLM failed: %s", exc)
-        return {
-            "answer": "Technical error — please try again.",
-            "source": None,
-            "type": "error",
-        }
-
+            logger.error("RAG LLM failed: %s", exc)
+            return {"answer": "Technical error — please try again.", "source": None, "type": "error"}
 
 def is_product_question(question: str) -> bool:
     """Heuristic: is this a product-help question (→ RAG) or a data question (→ SQL)?"""
