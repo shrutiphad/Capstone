@@ -1,5 +1,9 @@
 # Engineering Capstone — Multi-Tenant Receptionist + Data Assistant + Owner Console
 
+## Live URLs
+- Backend: https://capstone-1-9cak.onrender.com
+- Console:  https://capstone-2-mk4j.onrender.com
+
 ## One-command test run
 ```bash
 BASE_URL=http://localhost:8000 pytest tests/ -v
