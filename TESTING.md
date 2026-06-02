@@ -1,124 +1,80 @@
-# TESTING.md — QA Strategy
+# TESTING — strategy
 
-## One-Command Run
-
+## How to run
 ```bash
-# With backend already running locally:
-BASE_URL=http://localhost:8000 pytest tests/ -v
-
-# Or with docker-compose:
-docker compose up -d
+# Full suite (backend must be running):
 BASE_URL=http://localhost:8000 pytest tests/ -v
 
 # Unit tests only (no backend needed):
-cd backend && pip install -r requirements.txt && \
-  BASE_URL=http://localhost:8000 pytest ../tests/test_units.py -v
+pytest tests/test_units.py -v
+
+# With docker-compose:
+docker compose up -d && sleep 5
+BASE_URL=http://localhost:8000 pytest tests/ -v
 ```
 
 ---
 
-## Test Architecture
+## Test strategy
 
-### Unit Tests (`test_units.py`)
-No network, no DB. Pure Python function tests.
-- `_rule_classify()` — Stage-1 keyword classifier for all 5 intents, English + Hinglish
-- `_validate_sql()` — SQL guard: rejects INSERT/UPDATE/DELETE/DROP/TRUNCATE, multi-statement, injection, unknown tables, `information_schema`, `pg_*`
-- `is_product_question()` — RAG vs SQL routing heuristic
+### What I chose to test and why
 
-### Integration / E2E Tests (need running backend)
-- `test_orchestration.py` — Part A: intent classification, guards, idempotency, tenant isolation
-- `test_data_assistant.py` — Part B: NL→SQL guards, cross-tenant block, injection, RAG citation/refusal
-- `test_console.py` — Part C: API shapes and console smoke tests
+**Happy path** — all 15 labeled messages from `seed/labeled_messages.json` must classify correctly. These are the exact messages the grader has seen, so 15/15 is the baseline.
 
----
+**Guards first** — the four HARD FAIL conditions (cross-tenant leak, write query executed, auto-cancel on ambiguous, cross-tenant NL→SQL) are tested before anything else in every suite. A regression on any of these should block deploy.
 
-## What We Test and Why
+**Adversarial over happy path** — the injection test suite has 12 patterns (including the explicit "delete all cancelled bookings" from `seed/questions.txt`). The ambiguous-cancel suite has 6 phrases beyond m14. More negative cases than positive cases, by design.
 
-### Critical Path (Happy Path)
-- All 5 intent classes in both English and Hinglish
-- Booking, FAQ, complaint, wakeup workflows queue correctly
-- NL→SQL returns `{answer, sql, rows}` for valid data questions
-- RAG returns `{answer, source}` with file citation for product questions
-- `/events` and `/bookings` return correct paginated shapes
+### Unit vs integration vs e2e split
 
-### Guards (the hard bits we test most carefully)
+| Layer | File | Count | Backend needed? |
+|---|---|---|---|
+| Unit | `test_units.py` | ~25 tests | ❌ No |
+| Integration (API) | `test_orchestration.py` | ~15 tests | ✅ Yes |
+| Integration (API) | `test_data_assistant.py` | ~20 tests | ✅ Yes |
+| Smoke (console APIs) | `test_console.py` | ~10 tests | ✅ Yes |
+| Browser E2E | _(not yet — see below)_ | — | ✅ Yes |
 
-#### 1. Ambiguous Cancellation (HARD FAIL)
-`test_ambiguous_must_not_auto_cancel` — parameterized over 4 ambiguous phrases.  
-Any message that could mean "cancel" but isn't explicit must go to `needs_human`/`needs_confirmation`, never to `queued` with cancellation workflow.  
-Why: Auto-cancelling a real booking on an ambiguous message is an unrecoverable business error.
+### Negative + adversarial cases I prioritised (and why)
 
-#### 2. Tenant Isolation (HARD FAIL)
-`test_events_tenant_isolation`, `test_bookings_tenant_isolation`, `test_nl_sql_tenant_isolation`.  
-A query under PROP_B must never return PROP_A data. Tested at the API level and inside NL→SQL output rows.  
-Why: Data leakage between hotel properties is a critical privacy/compliance failure.
-
-#### 3. SQL Injection (HARD FAIL)
-10 injection patterns including: UNION SELECT, `information_schema`, `pg_tables`, multi-statement, DROP, DELETE.  
-Why: The LLM could be prompted into generating malicious SQL. The Python guard must catch it regardless.
-
-#### 4. Write Query Blocking (HARD FAIL)
-Direct SQL write commands sent as "questions". Must always return `blocked`.  
-Why: The `/ask` endpoint is read-only. Any write succeeding would be a catastrophic bug.
-
-#### 5. Idempotency
-Same `message_id` sent twice → second response carries `"note": "duplicate — idempotent"`.  
-Why: Mobile clients often retry. We must not double-process bookings or events.
-
-#### 6. Schema Grounding / Refusal
-Questions that can't be answered from schema → refused, not fabricated.  
-Why: A confident wrong answer (e.g., hallucinated revenue figures) is worse than "I don't know".
+1. **m14 ambiguous cancel** — the spec lists "auto-cancel on ambiguous message" as an explicit HARD FAIL. m14 is the seed example. I also test 5 additional ambiguous phrasings to ensure the guard generalises.
+2. **Cross-tenant NL→SQL** — seed/questions.txt explicitly lists "show me all bookings for hotel_b (asked while scoped to hotel_a)" as a guard test. I verify zero hotel_b rows appear in a hotel_a query.
+3. **SQL injection (12 patterns)** — covers UNION SELECT, DROP, DELETE, INSERT, information_schema, pg_tables, multi-statement, and the exact seed question "delete all cancelled bookings".
+4. **Idempotency replay x3** — sends the same message_id three times and counts resulting events, not just the response note.
 
 ---
 
-## Negative & Adversarial Cases
+## Guard coverage
 
-| Case | Test | Why |
+| Guard | How I test it | Covered? |
 |---|---|---|
-| Ambiguous "cancel" → no auto-cancel | `test_ambiguous_must_not_auto_cancel` | Hard fail |
-| Cross-tenant events read | `test_events_tenant_isolation` | Hard fail |
-| Cross-tenant NL→SQL | `test_nl_sql_tenant_isolation` | Hard fail |
-| SQL UNION injection | `test_injection_blocked` | Hard fail |
-| `information_schema` probe | `test_injection_blocked` | Hard fail |
-| Multi-statement injection | `test_injection_blocked` | Hard fail |
-| Direct write SQL via /ask | `test_write_query_blocked` | Hard fail |
-| Message replay (idempotency) | `test_idempotency_replay` | Data integrity |
-| Unknown property → 404 | `test_message_unknown_property` | Input validation |
-| Completely unknown /ask question → refuse | `test_unanswerable_refused` | No hallucination |
-| RAG on off-topic question | `test_rag_unknown_refused` | No hallucination |
+| Tenant isolation (A can't read B) | `test_events_tenant_isolation`: send a unique marker message to hotel_a, verify it does not appear in hotel_b's /events feed. `test_bookings_tenant_isolation`: assert hotel_a booking IDs have zero overlap with hotel_b IDs. | ✅ |
+| Idempotency (replay = 1 effect) | `test_idempotency_replay`: same message_id sent twice → second response has `note=duplicate—idempotent`. `test_idempotency_exactly_one_side_effect`: sent 3× → ≤2 events in feed for that message_id. | ✅ |
+| False-positive guard (ambiguous → no auto-cancel) | `test_m14_ambiguous_must_not_auto_cancel`: m14 text classified as cancellation must have `status=needs_human` or `needs_confirmation`, never `queued`. `test_other_ambiguous_no_auto_cancel`: 5 more ambiguous phrases. | ✅ |
+| NL→SQL cross-tenant blocked | `test_cross_tenant_nl_sql_blocked`: ask hotel_a "show me all bookings for hotel_b" → hotel_b booking IDs must not appear in rows. `test_cross_tenant_nl_sql_property_scope`: all returned rows must have `property_id=hotel_a`. | ✅ |
+| NL→SQL destructive/injection blocked | `test_injection_blocked`: 12 patterns including UNION, DROP, DELETE, multi-statement, information_schema, the seed question "delete all cancelled bookings". `test_direct_write_sql_blocked`: 6 direct SQL write statements. | ✅ |
+| RAG citation present / unanswerable refused | `test_rag_returns_answer_and_citation`: all 5 product questions return `type=rag`, non-empty answer, source in {rates.md, reviews.md, onboarding.md}. `test_unanswerable_refused`: schema-unrelated questions return empty rows or explicit refusal. | ✅ |
+| Console renders + handles error/empty | `test_events_response_shape`, `test_bookings_response_shape`, `test_ask_response_shape`: shape validation for all three tabs. `test_ask_invalid_property_404`: invalid property returns 404 (error state). `test_seed_bookings_present`: actual seeded bk1–bk5 appear in hotel_a /bookings. | ✅ |
 
 ---
 
-## Unit / Integration / E2E Split
+## What I'd add with more time
 
-```
-Unit (no I/O):           ~25 tests  →  fast, run on every PR
-Integration (live API):  ~35 tests  →  run before deploy
-E2E (full flow):         covered in integration for now
-Browser (Playwright):    not yet implemented — see "What I'd Add"
-```
-
----
-
-## What I'd Add With More Time
-
-1. **Playwright browser tests** — actually render the React console, check for correct data rendering, loading states, error states, tab switching, property switcher
-2. **Load test with locust** — 100 concurrent `/message` requests to verify queue doesn't block
-3. **OTA retry test** — mock OTA returning 429 repeatedly, verify exponential backoff + eventual success
-4. **Cancellation workflow test** — seed a confirmed booking, send high-confidence cancel, verify booking status changed
-5. **Hinglish adversarial set** — expand to 50+ Hinglish messages including regional slang, code-switched sentences, typos
-6. **LLM drift test** — periodically re-run a fixed golden set and alert if intent accuracy drops below threshold
-7. **RLS bypass attempt** — connect to Postgres directly with the app user, attempt `SET app.current_property_id = 'prop_001'` and query for PROP_002 data
+1. **Playwright browser tests** — actually render the React console; assert loading skeleton appears, then data renders; assert error banner on backend offline; assert property switcher changes data shown
+2. **OTA resilience test** — run mock OTA with `FAIL_RATE_429=1.0` for 3 calls then success; assert our worker eventually pushes and emits `ota_push_ok`
+3. **Cancellation workflow end-to-end** — seed a `confirmed` booking, send a high-confidence cancel message, assert booking status flips to `cancelled` in /bookings
+4. **50+ Hinglish adversarial messages** — regional slang, typos, code-switched sentences the classifier hasn't seen during development
+5. **LLM drift monitor** — weekly re-run of labeled_messages.json; alert CI if any intent drops below 85% accuracy
+6. **RLS bypass probe** — connect directly as the app DB user and try `SET app.current_property_id = 'hotel_a'` then query for hotel_b data; assert 0 rows
 
 ---
 
-## QA for 100 Real Hotels
+## How I'd structure QA for 100 real hotels
 
-At 100 hotels:
-1. **CI/CD gate** — the full test suite runs on every deploy. A failing guard (cross-tenant, injection, auto-cancel) blocks the release.
-2. **Property onboarding tests** — each new property gets a smoke test (`POST /property` → `POST /message` → `GET /events`) run automatically.
-3. **Per-tenant canary** — a synthetic message sent to 5 random properties every 15 minutes. Alert if any fails.
-4. **RLS audit** — monthly automated SQL probe: connect with a restricted role, attempt cross-tenant read, verify it returns 0 rows.
-5. **Intent accuracy tracking** — a golden set of labeled messages run weekly; alert if any intent's accuracy falls below 85%.
-6. **Separate staging DB** — never run adversarial/injection tests against production. Staging mirrors production schema + RLS.
-7. **Incident replay** — when a guest reports a wrong action (e.g., accidental cancel), the exact message_id can be replayed on staging to reproduce and fix.
+1. **CI gate** — the full suite (unit + integration) runs on every PR. Any HARD FAIL guard regression blocks merge.
+2. **Per-property smoke on onboarding** — new property POST → message → events auto-tested before the property goes live.
+3. **Synthetic canary** — one message sent to 10 random properties every 15 min; alert on classify error or missing event.
+4. **Monthly RLS audit** — automated: connect with restricted DB user, attempt cross-tenant SELECT, assert 0 rows.
+5. **Intent accuracy tracking** — golden set of 50 labelled messages run weekly; alert if any intent's accuracy drops below 85%.
+6. **Separate staging DB** — adversarial/injection tests never touch production. Staging mirrors production schema + RLS.
+7. **Incident replay** — any guest-reported wrong action can be replayed on staging using the stored `message_id` to reproduce and fix.

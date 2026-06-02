@@ -1,188 +1,192 @@
-# Hotel Receptionist — Engineering Capstone
+# Engineering Capstone — Multi-Tenant Receptionist + Data Assistant + Owner Console
 
-Multi-tenant AI receptionist + data assistant + owner console.
+## One-command test run
+```bash
+BASE_URL=http://localhost:8000 pytest tests/ -v
+```
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│  Guest Message  →  POST /message                │
-│    ↓ 2-stage classify (rules → LLM)             │
-│    ↓ asyncio.Queue (non-blocking)               │
-│    ↓ WorkflowRegistry handler                   │
-│    ↓ Postgres (RLS, tenant-scoped)              │
-├─────────────────────────────────────────────────┤
-│  Owner /ask  →  is_product_question?            │
-│    ├── YES → RAG over kb/ + citation            │
-│    └── NO  → NL→SQL guard → read-only exec      │
-├─────────────────────────────────────────────────┤
-│  Owner Console (React/TS) → /events /bookings   │
-│    polls every 8s, mobile-first dark UI         │
-└─────────────────────────────────────────────────┘
+POST /message  →  2-stage classify (rules < 1ms → LLM fallback)
+               →  asyncio.Queue  (non-blocking, returns immediately)
+               →  WorkflowRegistry handler
+               →  Postgres (RLS via set_config, tenant-scoped)
+
+POST /ask  →  is_product_question?
+              ├── YES → RAG over kb/ (rates.md, reviews.md, onboarding.md) + citation
+              └── NO  → NL→SQL: Python guard → read-only RLS transaction
+
+GET /events, GET /bookings  →  tenant-scoped (RLS enforced)
+
+Frontend: React/TS SPA, property switcher (hotel_a / hotel_b), 3 tabs,
+          polls /events + /bookings every 8s
 ```
 
-## Quick Start (Docker — recommended)
+## Quick start — Docker (recommended)
 
 ```bash
-git clone <your-repo>
+git clone <your-repo-url>
 cd hotel-receptionist
 
-# 1. Copy and fill .env
 cp .env.example .env
-# → Set ANTHROPIC_API_KEY
+# → Edit .env: set ANTHROPIC_API_KEY
 
-# 2. Start everything
 docker compose up --build
 
 # Backend:  http://localhost:8000
 # Console:  http://localhost:3000
-# Mock OTA: http://localhost:9000
+# Mock OTA: http://localhost:9000/rates, /availability
 ```
 
-## Quick Start (Local)
+## Quick start — Local
 
-### Prerequisites
-- Python 3.12+
-- Node.js 20+
-- PostgreSQL 15+ running locally
+### Prerequisites: Python 3.12+, Node 20+, PostgreSQL 16 running
 
 ```bash
-# 1. Backend
-cd backend
-pip install -r requirements.txt
-cp ../.env.example ../.env
+# 1. Copy env
+cp .env.example .env
 # Edit .env — set ANTHROPIC_API_KEY and DATABASE_URL
 
+# 2. Backend
+cd backend
+pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 
-# 2. Mock OTA (separate terminal)
+# 3. Mock OTA (new terminal)
 python backend/mock_ota/mock_ota_server.py
 
-# 3. Frontend (separate terminal)
+# 4. Frontend (new terminal)
 cd frontend
 npm install
 VITE_API_URL=http://localhost:8000 npm run dev
-# Open http://localhost:3000
+# → http://localhost:3000
 ```
 
-## Running Tests
+## Running tests
 
 ```bash
-# Install test deps
 pip install -r tests/requirements.txt
 
-# Unit tests only (no backend needed)
+# Unit tests (no backend needed)
 pytest tests/test_units.py -v
 
 # Full suite (backend must be running)
 BASE_URL=http://localhost:8000 pytest tests/ -v
 
-# Run specific file
+# Single file
 BASE_URL=http://localhost:8000 pytest tests/test_orchestration.py -v
 ```
 
-## Deployment (Render)
+## Deploying to Render
 
-### Backend (Web Service)
+### 1. PostgreSQL
+Create a Render PostgreSQL instance. Copy the external connection string.
+
+### 2. Mock OTA (Web Service)
+- Root Directory: `backend/mock_ota`
+- Build Command: _(none)_
+- Start Command: `python mock_ota_server.py`
+- Port: 9000
+
+### 3. Backend (Web Service)
+- Root Directory: `backend`
 - Build Command: `pip install -r requirements.txt`
 - Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- Root Directory: `backend`
-- Environment Variables:
+- Env vars:
   - `ANTHROPIC_API_KEY` → your key
-  - `DATABASE_URL` → Postgres connection string (Render provides this)
-  - `OTA_URL` → URL of deployed mock_ota service
+  - `DATABASE_URL` → Render Postgres connection string
+  - `OTA_URL` → https://your-mock-ota.onrender.com
 
-### Mock OTA (Web Service)
-- Build Command: `pip install -r requirements.txt` (none needed, stdlib only)
-- Start Command: `python mock_ota_server.py`
-- Root Directory: `backend/mock_ota`
-
-### Frontend (Static Site)
+### 4. Frontend (Static Site)
+- Root Directory: `frontend`
 - Build Command: `npm install && npm run build`
 - Publish Directory: `dist`
-- Root Directory: `frontend`
-- Environment Variable: `VITE_API_URL` → deployed backend URL
+- Env var: `VITE_API_URL` → https://your-backend.onrender.com
 
-### Database
-- Use Render PostgreSQL (free tier)
-- Schema + RLS applied automatically on first startup
+Schema + RLS + seed data are applied automatically on first backend startup.
 
 ## API Reference
 
 ### Part A — Orchestration
-
-| Method | Path | Description |
-|---|---|---|
-| POST | `/property` | Register/update a tenant property |
-| POST | `/message` | Classify + route guest message (idempotent on `message_id`) |
-| GET | `/events?property_id=X` | Tenant-scoped event feed |
-| GET | `/bookings?property_id=X` | Tenant-scoped bookings |
-| GET | `/messages?property_id=X` | Tenant-scoped message logs |
+```
+POST /property          {property_id, name, language?, custom_faqs?}
+POST /message           {property_id, guest_id, message_id, text}
+GET  /events            ?property_id=hotel_a&limit=50
+GET  /bookings          ?property_id=hotel_a&limit=50
+GET  /messages          ?property_id=hotel_a&limit=50
+```
 
 ### Part B — Data Assistant
+```
+POST /ask               {property_id, question}
+                        → {answer, sql, rows, source, type}
+                           type: data | rag | blocked | refused | error
+```
 
-| Method | Path | Description |
-|---|---|---|
-| POST | `/ask` | `{property_id, question}` → `{answer, sql, rows, source, type}` |
+### Health / Metrics
+```
+GET  /health            → {ok: true}
+GET  /metrics           → {classify_p95_ms: float}
+```
 
-### Health
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/health` | `{ok: true}` |
-| GET | `/metrics` | `{classify_p95_ms}` |
-
-## Guards Summary
+## Guard summary
 
 | Guard | Mechanism |
 |---|---|
-| Tenant isolation | Postgres RLS (`app.current_property_id` via `set_config`) |
-| Cancellation false-positive | Separate `CANCEL_CONFIDENCE_THRESHOLD=0.75` (higher than general 0.6) |
-| Low-confidence → handoff | `confidence < CONFIDENCE_THRESHOLD` → `status=needs_human` |
-| Idempotency | `message_id UNIQUE` in `message_logs`, checked before any action |
-| SQL injection | Python regex validator before execution |
-| Write query block | Regex + must-be-SELECT check |
-| Cross-tenant SQL | Python subquery wrapper + RLS (2 layers) |
-| LLM hallucination | Schema grounding prompt + UNANSWERABLE path |
+| Tenant isolation | PostgreSQL RLS — `set_config('app.current_property_id', ...)` in every transaction |
+| Ambiguous cancel | `CANCEL_CONFIDENCE_THRESHOLD=0.75` separate from general `CONFIDENCE_THRESHOLD=0.6` |
+| Low-confidence handoff | `confidence < 0.6` → `status=needs_human`, no workflow fired |
+| Idempotency | `message_logs.message_id UNIQUE` + check-before-act |
+| SQL injection | Python regex guard: blocks all non-SELECT, UNION, information_schema, pg_*, multi-statement |
+| Cross-tenant NL→SQL | RLS enforced in the same read-only transaction as the LLM-generated query |
+| Write query block | Must match `^\s*SELECT\b` — anything else raises `SQLGuardError` |
 
-## Project Structure
+## Seed data
+
+- `hotel_a` — Hotel Surya (Varanasi): 3 room types, 5 bookings (bk1–bk5)
+- `hotel_b` — Coastal Stay PG (Bengaluru): 2 room types, 2 bookings (bk6–bk7)
+- KB: `rates.md`, `reviews.md`, `onboarding.md`
+
+## Project structure
 
 ```
-.
 ├── backend/
 │   ├── app/
-│   │   ├── main.py          # FastAPI routes
-│   │   ├── classify.py      # 2-stage intent classifier
-│   │   ├── queue_worker.py  # Async queue + workflow handlers
-│   │   ├── nl_sql.py        # NL→SQL guard + execution
-│   │   ├── rag.py           # RAG over kb/
-│   │   ├── database.py      # asyncpg pool + RLS helpers
-│   │   ├── models.py        # Pydantic request/response models
-│   │   ├── config.py        # Settings (env)
-│   │   └── seed.py          # DB seeder
-│   ├── kb/                  # Knowledge base articles (Markdown)
-│   ├── seed/                # Schema SQL + seed data + properties.json
-│   ├── mock_ota/            # Mock OTA channel manager (:9000)
+│   │   ├── main.py          FastAPI routes (Parts A + B)
+│   │   ├── classify.py      2-stage intent classifier
+│   │   ├── queue_worker.py  asyncio.Queue + workflow handlers + OTA push
+│   │   ├── nl_sql.py        NL→SQL guard + execution
+│   │   ├── rag.py           RAG over kb/ with citation
+│   │   ├── database.py      asyncpg pool + RLS helpers + schema migration
+│   │   ├── models.py        Pydantic request/response models
+│   │   ├── config.py        Settings from .env
+│   │   └── seed.py          properties.json + data.sql seeder
+│   ├── kb/                  rates.md, reviews.md, onboarding.md
+│   ├── seed/                schema.sql, data.sql, properties.json,
+│   │                        labeled_messages.json, questions.txt
+│   ├── mock_ota/            mock_ota_server.py (exact from starter)
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx          # Main console with tabs + property switcher
-│   │   ├── api.ts           # All backend calls
+│   │   ├── App.tsx          Console: tabs + property switcher (hotel_a/hotel_b)
+│   │   ├── api.ts           All backend calls
 │   │   └── components/
-│   │       ├── EventsFeed.tsx     # Live events (auto-poll)
-│   │       ├── BookingsList.tsx   # Bookings table
-│   │       └── AskAssistant.tsx   # NL ask box + SQL display
-│   ├── package.json
+│   │       ├── EventsFeed.tsx     Live events (poll 8s)
+│   │       ├── BookingsList.tsx   Bookings table
+│   │       └── AskAssistant.tsx   Ask box + SQL + rows
 │   └── Dockerfile
 ├── tests/
-│   ├── conftest.py          # Fixtures, BASE_URL, property IDs
-│   ├── test_units.py        # Unit tests (no network)
-│   ├── test_orchestration.py# Part A integration tests
-│   ├── test_data_assistant.py# Part B integration tests
-│   └── test_console.py      # Part C smoke tests
+│   ├── conftest.py          Fixtures, BASE_URL, hotel_a/hotel_b
+│   ├── test_units.py        Unit tests (no network — classifier, guard, heuristic)
+│   ├── test_orchestration.py  Part A: 15 seed messages, guards, idempotency, isolation
+│   ├── test_data_assistant.py Part B: NL→SQL guards, injection, RAG, cross-tenant
+│   └── test_console.py      Part C: API shapes, seed booking IDs, error states
 ├── docker-compose.yml
 ├── pytest.ini
+├── .env.example
+├── README.md
 ├── TESTING.md
 ├── RESULTS.md
 └── AI_LOG.md

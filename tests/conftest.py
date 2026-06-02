@@ -1,7 +1,8 @@
 """
 Shared test fixtures.
-Uses httpx.AsyncClient against the live backend.
-Set BASE_URL env var to point at a local or deployed backend.
+Property IDs match seed/data.sql and seed/properties.json exactly:
+  hotel_a — Hotel Surya, Varanasi
+  hotel_b — Coastal Stay PG, Bengaluru
 """
 import os
 import asyncio
@@ -13,9 +14,8 @@ load_dotenv()
 
 BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000")
 
-# Two test properties for isolation tests
-PROP_A = "prop_001"
-PROP_B = "prop_002"
+PROP_A = "hotel_a"
+PROP_B = "hotel_b"
 
 
 @pytest.fixture(scope="session")
@@ -33,10 +33,28 @@ async def client():
 
 @pytest.fixture(scope="session")
 async def seeded_properties(client: httpx.AsyncClient):
-    """Ensure both test properties exist before running tests."""
+    """Ensure both seed properties exist before running tests."""
     for prop in [
-        {"property_id": PROP_A, "name": "Hotel Sunrise Delhi", "city": "Delhi", "total_rooms": 50},
-        {"property_id": PROP_B, "name": "Hotel Pearl Mumbai", "city": "Mumbai", "total_rooms": 30},
+        {
+            "property_id": PROP_A,
+            "name": "Hotel Surya (Varanasi)",
+            "language": "hi",
+            "custom_faqs": [
+                {"q": "checkout time", "a": "11 AM"},
+                {"q": "wifi", "a": "Free WiFi, password at reception"},
+                {"q": "parking", "a": "Free on-site parking"},
+            ],
+        },
+        {
+            "property_id": PROP_B,
+            "name": "Coastal Stay PG (Bengaluru)",
+            "language": "en",
+            "custom_faqs": [
+                {"q": "rent", "a": "₹9,500/month sharing, ₹14,000 single"},
+                {"q": "food", "a": "Veg/non-veg mess included"},
+                {"q": "deposit", "a": "Two months refundable"},
+            ],
+        },
     ]:
         r = await client.post("/property", json=prop)
         assert r.status_code in (200, 201), f"Seed property failed: {r.text}"

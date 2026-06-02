@@ -4,10 +4,10 @@ import { BookingsList } from "./components/BookingsList";
 import { AskAssistant } from "./components/AskAssistant";
 import { getHealth } from "./api";
 
-// Known properties from seed — can also be fetched from /properties endpoint
+// Must match seed/properties.json exactly
 const PROPERTIES = [
-  { id: "prop_001", name: "Hotel Sunrise Delhi" },
-  { id: "prop_002", name: "Hotel Pearl Mumbai" },
+  { id: "hotel_a", name: "Hotel Surya (Varanasi)" },
+  { id: "hotel_b", name: "Coastal Stay PG (Bengaluru)" },
 ];
 
 type Tab = "events" | "bookings" | "ask";
@@ -24,9 +24,9 @@ export default function App() {
   }, []);
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: "events", label: "📡 Events Feed" },
+    { id: "events",   label: "📡 Events Feed" },
     { id: "bookings", label: "🏨 Bookings" },
-    { id: "ask", label: "🤖 Ask Assistant" },
+    { id: "ask",      label: "🤖 Ask Assistant" },
   ];
 
   return (
@@ -40,19 +40,24 @@ export default function App() {
         top: 0,
         zIndex: 10,
       }}>
-        <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56 }}>
+        <div style={{
+          maxWidth: 900, margin: "0 auto",
+          display: "flex", alignItems: "center", justifyContent: "space-between", height: 56,
+        }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 20 }}>🏩</span>
             <span style={{ fontWeight: 700, fontSize: 16, color: "#f1f5f9" }}>Owner Console</span>
             {backendOk === true && (
-              <span style={{ background: "#14532d33", border: "1px solid #22c55e55", color: "#22c55e", borderRadius: 4, fontSize: 10, padding: "2px 6px" }}>
-                LIVE
-              </span>
+              <span style={{
+                background: "#14532d33", border: "1px solid #22c55e55",
+                color: "#22c55e", borderRadius: 4, fontSize: 10, padding: "2px 6px",
+              }}>LIVE</span>
             )}
             {backendOk === false && (
-              <span style={{ background: "#7f1d1d33", border: "1px solid #ef444455", color: "#f87171", borderRadius: 4, fontSize: 10, padding: "2px 6px" }}>
-                OFFLINE
-              </span>
+              <span style={{
+                background: "#7f1d1d33", border: "1px solid #ef444455",
+                color: "#f87171", borderRadius: 4, fontSize: 10, padding: "2px 6px",
+              }}>OFFLINE</span>
             )}
           </div>
 
@@ -61,13 +66,8 @@ export default function App() {
             value={propertyId}
             onChange={e => setPropertyId(e.target.value)}
             style={{
-              background: "#0f172a",
-              border: "1px solid #334155",
-              color: "#f1f5f9",
-              borderRadius: 6,
-              padding: "6px 10px",
-              fontSize: 13,
-              cursor: "pointer",
+              background: "#0f172a", border: "1px solid #334155", color: "#f1f5f9",
+              borderRadius: 6, padding: "6px 10px", fontSize: 13, cursor: "pointer",
             }}
           >
             {PROPERTIES.map(p => (
@@ -106,8 +106,12 @@ export default function App() {
       <main style={{ maxWidth: 900, margin: "0 auto", padding: "20px 16px" }}>
         {/* Property badge */}
         <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 11, color: "#475569", textTransform: "uppercase", letterSpacing: 1 }}>Property:</span>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#94a3b8", fontFamily: "monospace" }}>{propertyId}</span>
+          <span style={{ fontSize: 11, color: "#475569", textTransform: "uppercase", letterSpacing: 1 }}>
+            Property:
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#94a3b8", fontFamily: "monospace" }}>
+            {propertyId}
+          </span>
           <span style={{ fontSize: 12, color: "#64748b" }}>
             — {PROPERTIES.find(p => p.id === propertyId)?.name}
           </span>
@@ -119,19 +123,17 @@ export default function App() {
             <EventsFeed propertyId={propertyId} />
           </section>
         )}
-
         {activeTab === "bookings" && (
           <section>
             <SectionHeader title="Bookings" subtitle="Tenant-scoped, most recent first" />
             <BookingsList propertyId={propertyId} />
           </section>
         )}
-
         {activeTab === "ask" && (
           <section>
             <SectionHeader
               title="Ask the Data Assistant"
-              subtitle="Data questions → NL→SQL | Product questions → Knowledge Base"
+              subtitle="Data questions → NL→SQL  |  Product questions → Knowledge Base"
             />
             <AskAssistant propertyId={propertyId} />
           </section>

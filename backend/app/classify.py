@@ -23,33 +23,39 @@ logger = logging.getLogger(__name__)
 
 INTENTS = ["booking", "cancellation", "faq", "complaint", "wakeup"]
 
-# Rule-based keyword signals — weighted patterns
+# Rule-based keyword signals
 RULES: dict[str, list[str]] = {
     "booking": [
         "book", "room", "available", "availability", "stay", "check in", "check-in",
-        "checkin", "milega", "chahiye", "kal ka", "tonight", "tonight?", "room hai",
+        "checkin", "milega", "chahiye", "kal ka", "tonight", "room hai",
         "vacancy", "accommodation", "reservation", "reserve", "want a room",
         "need a room", "2 logo", "single room", "double room", "suite",
         "deluxe", "standard room", "any room", "is there a room",
     ],
     "cancellation": [
-        "cancel", "cancel kar", "cancel karo", "cancel karna", "band kar",
-        "cancellation", "refund", "don't need", "wont come", "won't come",
-        "nahin aaunga", "nahi aana", "booking cancel",
+        "cancel kar", "cancel karo", "cancel karna", "band kar",
+        "cancellation", "booking cancel", "cancel my booking",
+        "cancel the booking", "cancel karna hai",
+        # bare "cancel" is intentionally NOT here — it alone in a hedged sentence
+        # (m14: "maybe cancel or change") must not auto-fire high-confidence cancellation.
+        # The LLM stage handles bare "cancel" with proper confidence calibration.
     ],
     "faq": [
         "checkout time", "check out time", "what time", "wifi", "wi-fi",
         "password", "parking", "breakfast", "restaurant", "pool", "gym",
         "amenities", "facilities", "pet", "smoking", "rent", "deposit",
-        "food", "meals", "kya hai", "kya hoga", "kitna", "kab tak",
-        "timings", "hours", "what is", "how much", "how do", "any",
+        "meals", "kya hai", "kya hoga", "kitna", "kab tak",
+        "timings", "hours", "what is", "how much", "how do",
     ],
     "complaint": [
-        "not working", "broken", "problem", "issue", "complaint", "bad",
-        "dirty", "cold", "noise", "noisy", "smell", "bug", "cockroach",
+        "not working", "broken", "problem", "issue", "complaint",
+        "dirty", "noise", "noisy", "smell", "bug", "cockroach",
         "leaking", "leak", "doesn't work", "no hot water", "no water",
         "ac not", "heater not", "light not", "tv not", "unhappy", "terrible",
         "worst", "unacceptable", "disgusting",
+        "food was cold", "food was bad", "cold and bad", "bad and cold",
+        "yesterday was cold", "cold food", "stale food", "bad food",
+        "khaana kharab", "khana thanda", "khaana thanda",
     ],
     "wakeup": [
         "wake up", "wake-up", "wakeup", "wake me", "alarm", "morning call",
@@ -57,6 +63,16 @@ RULES: dict[str, list[str]] = {
         "6am", "6 am", "7am", "5am", "5:30", "6:30",
     ],
 }
+
+# Greeting words → faq (stage 1 fallback so "hi", "hello", "namaste" don't go to LLM)
+GREETINGS = {"hi", "hello", "hey", "namaste", "hii", "helo", "good morning", "good evening"}
+
+# Hedge words that lower confidence on any rule match (especially cancellation)
+HEDGE_WORDS = [
+    "maybe", "not sure", "or change", "perhaps", "might", "possibly",
+    "thinking about", "sochna", "pata nahi", "confirm nahi", "decide nahi",
+    "umm", "hmm", "not confirmed",
+]
 
 # Latency tracking for P95
 _latencies_ms: list[float] = []
@@ -77,9 +93,16 @@ def get_classify_p95() -> float:
 
 def _rule_classify(text: str) -> tuple[Optional[str], float]:
     """Stage 1: keyword rules. Returns (intent|None, confidence)."""
-    text_lower = text.lower()
-    scores: dict[str, float] = {}
+    text_lower = text.lower().strip()
 
+    # Greeting shortcut → faq (avoids sending "hi" to LLM)
+    if text_lower in GREETINGS or any(text_lower == g for g in GREETINGS):
+        return "faq", 0.65
+
+    # Check for hedge words — they reduce confidence ceiling
+    has_hedge = any(hw in text_lower for hw in HEDGE_WORDS)
+
+    scores: dict[str, float] = {}
     for intent, keywords in RULES.items():
         hits = sum(1 for kw in keywords if kw in text_lower)
         if hits > 0:
@@ -89,10 +112,27 @@ def _rule_classify(text: str) -> tuple[Optional[str], float]:
         return None, 0.0
 
     best = max(scores, key=scores.get)  # type: ignore[arg-type]
+
+    # Tie-breaking: if complaint and booking are tied (both have 1 hit),
+    # and complaint has a specific problem keyword, complaint wins.
+    # Prevents "room 203 not working" being classified as booking.
+    if (
+        best == "booking"
+        and "complaint" in scores
+        and abs(scores["booking"] - scores["complaint"]) < 0.01
+    ):
+        best = "complaint"
+
     raw = scores[best]
 
     # Scale: 1 keyword hit → ~0.65, 2 hits → ~0.80, 3+ → ~0.90+
     confidence = min(0.50 + raw * 15, 0.95)
+
+    # Hedge words cap confidence — forces LLM stage to re-evaluate
+    # This is the key guard for m14: "umm maybe cancel or change, not sure yet"
+    if has_hedge:
+        confidence = min(confidence, 0.55)
+
     return best, confidence
 
 

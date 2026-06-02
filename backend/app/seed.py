@@ -1,6 +1,7 @@
 """
 Seeds the database from seed/ directory.
-Run once on startup or explicitly.
+properties.json has: property_id, name, language, custom_faqs (no city/total_rooms).
+data.sql has the actual HMS data for hotel_a and hotel_b.
 """
 import json
 import logging
@@ -14,7 +15,7 @@ SEED_DIR = Path(__file__).parent.parent / "seed"
 
 
 async def seed_properties() -> None:
-    """Load properties from properties.json if not already present."""
+    """Load properties from properties.json and upsert into DB."""
     props_file = SEED_DIR / "properties.json"
     if not props_file.exists():
         logger.warning("properties.json not found at %s", props_file)
@@ -24,52 +25,49 @@ async def seed_properties() -> None:
         properties = json.load(f)
 
     for prop in properties:
+        pid = prop["property_id"]
         existing = await admin_fetch(
-            "SELECT property_id FROM properties WHERE property_id = $1",
-            prop["property_id"],
+            "SELECT property_id FROM properties WHERE property_id = $1", pid
         )
         if existing:
-            logger.debug("Property %s already exists, skipping", prop["property_id"])
+            logger.debug("Property %s already exists, skipping", pid)
             continue
 
-        config = {
+        config = json.dumps({
             "language": prop.get("language", "en"),
             "custom_faqs": prop.get("custom_faqs", []),
-        }
+        })
         await admin_execute(
-            """INSERT INTO properties(property_id, name, city, total_rooms, config)
-               VALUES($1, $2, $3, $4, $5)
-               ON CONFLICT DO NOTHING""",
-            prop["property_id"],
-            prop.get("name", ""),
-            prop.get("city", ""),
-            prop.get("total_rooms", 0),
-            json.dumps(config),
+            """INSERT INTO properties(property_id, name, config)
+               VALUES($1, $2, $3)
+               ON CONFLICT(property_id) DO NOTHING""",
+            pid,
+            prop.get("name", pid),
+            config,
         )
-        logger.info("Seeded property: %s", prop["property_id"])
+        logger.info("Seeded property: %s", pid)
 
 
 async def seed_hms_data() -> None:
     """Run seed/data.sql to insert rooms, rates, bookings."""
     data_file = SEED_DIR / "data.sql"
     if not data_file.exists():
+        logger.warning("data.sql not found at %s", data_file)
         return
 
     sql_text = data_file.read_text()
-
-    # Split on semicolons (simple approach)
-    statements = [s.strip() for s in sql_text.split(";") if s.strip()]
+    statements = [s.strip() for s in sql_text.split(";") if s.strip() and not s.strip().startswith("--")]
     for stmt in statements:
-        if stmt.startswith("--") or not stmt:
+        if not stmt:
             continue
         try:
             await admin_execute(stmt)
         except Exception as exc:
-            # Ignore duplicate key errors (re-seeding)
-            if "duplicate" in str(exc).lower() or "already exists" in str(exc).lower():
-                pass
+            err = str(exc).lower()
+            if "duplicate" in err or "already exists" in err or "unique" in err:
+                pass  # already seeded
             else:
-                logger.warning("Seed stmt failed: %s | %s", exc, stmt[:80])
+                logger.warning("Seed stmt failed: %s | %s", exc, stmt[:100])
 
     logger.info("HMS data seeded from data.sql")
 

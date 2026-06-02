@@ -58,6 +58,9 @@ class H(BaseHTTPRequestHandler):
         _seen_push.add(pid_key)
         self._send(200, {"status": "accepted", "push_id": pid_key})
 
+    def log_message(self, format, *args):
+        print(f"[mock_ota] {self.address_string()} - {format % args}")
+
 
 if __name__ == "__main__":
     print("Mock OTA on http://localhost:9000  (/rates, /availability)")
