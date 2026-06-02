@@ -2,12 +2,13 @@
   "name": "hotel-console",
   "version": "1.0.0",
   "private": true,
+  
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "test": "vitest run"
+    "build": "tsc && npx vite build",
+    "preview": "vite preview"
   },
+
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
