@@ -7,7 +7,7 @@ import { getHealth } from "./api";
 // Must match seed/properties.json exactly
 const PROPERTIES = [
   { id: "hotel_a", name: "Hotel Surya (Varanasi)" },
-  { id: "hotel_b", name: "Coastal Stay PG (Bengaluru)" },
+  { id: "hotel_b", name: "Coastal Stay PG (Banglore)" },
 ];
 
 type Tab = "events" | "bookings" | "ask";
