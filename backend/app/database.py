@@ -96,8 +96,11 @@ END $$;
 
 async def init_pool(database_url: str) -> None:
     global _pool
-    _pool = await asyncpg.create_pool(database_url, min_size=2, max_size=10)
-    # First run starter schema.sql, then our migration
+  
+    
+    ssl_setting = "require" if "supabase.co" in database_url else "disable"
+    _pool = await asyncpg.create_pool(database_url, min_size=2, max_size=10, ssl=ssl_setting)
+
     from pathlib import Path
     schema_file = Path(__file__).parent.parent / "seed" / "schema.sql"
     if schema_file.exists():
